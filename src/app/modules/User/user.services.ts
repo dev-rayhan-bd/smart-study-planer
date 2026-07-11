@@ -26,7 +26,7 @@ const getMyProfileFromDB = async (userId: string) => {
 };
 
 const getAllUserFromDB = async (query: Record<string, unknown>) => {
-  const baseQuery = UserModel.find(); 
+  const baseQuery = UserModel.find();
 
   const userQuery = new QueryBuilder(baseQuery, query)
     .search(UserSearchableFields)
