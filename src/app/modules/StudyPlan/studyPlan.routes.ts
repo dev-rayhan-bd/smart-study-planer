@@ -27,7 +27,7 @@ router.get(
 );
 
 router.patch(
-  '/toggle-task/:planId',
+  '/toggle-task/:id',
   auth(USER_ROLE.student),
   validateRequest(StudyPlanValidation.toggleTaskValidationSchema),
   StudyPlanControllers.toggleTaskStatus

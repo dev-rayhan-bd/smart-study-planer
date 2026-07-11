@@ -60,14 +60,14 @@ const generateAiStudyPlan = async (payload: {
     );
   }
 
-  // Transform AI response: convert plain task strings to { task, completed }
+  // Transform AI response: convert plain task strings to { title, isCompleted }
   const transformedPlan = aiPlan.map(
     (day: { day: number; topic: string; tasks: string[] }) => ({
       day: day.day,
       topic: day.topic,
       tasks: day.tasks.map((task: string) => ({
-        task,
-        completed: false,
+        title: task,
+        isCompleted: false,
       })),
     })
   );
@@ -119,41 +119,45 @@ const getSinglePlanFromDB = async (planId: string, userId: string) => {
 };
 
 const toggleTaskStatusInDB = async (
+  userId: string,
   planId: string,
-  dayIndex: number,
-  taskIndex: number,
-  userId: string
+  dayNumber: number,
+  taskIndex: number
 ) => {
-  // Fetch plan — scoped to the owning user
-  const plan = await StudyPlanModel.findOne({ _id: planId, user: userId });
+  // Security check: ensure the plan belongs to the userId
+  const plan = await StudyPlanModel.findOne({ _id: planId });
   if (!plan) {
     throw new AppError(httpStatus.NOT_FOUND, 'Study plan not found');
   }
 
-  // Validate dayIndex bounds
-  if (dayIndex < 0 || dayIndex >= plan.aiPlan.length) {
+  if (plan.user.toString() !== userId) {
     throw new AppError(
-      httpStatus.BAD_REQUEST,
-      'Invalid day index'
+      httpStatus.FORBIDDEN,
+      'You are not authorized to modify this study plan'
     );
+  }
+
+  // Validate dayNumber bounds
+  if (dayNumber < 0 || dayNumber >= plan.aiPlan.length) {
+    throw new AppError(httpStatus.BAD_REQUEST, 'Invalid day number');
   }
 
   // Validate taskIndex bounds
-  const day = plan.aiPlan[dayIndex];
+  const day = plan.aiPlan[dayNumber];
   if (taskIndex < 0 || taskIndex >= day.tasks.length) {
-    throw new AppError(
-      httpStatus.BAD_REQUEST,
-      'Invalid task index'
-    );
+    throw new AppError(httpStatus.BAD_REQUEST, 'Invalid task index');
   }
 
-  // Toggle the task's completed status
-  day.tasks[taskIndex].completed = !day.tasks[taskIndex].completed;
+  // Toggle the task's isCompleted value
+  day.tasks[taskIndex].isCompleted = !day.tasks[taskIndex].isCompleted;
 
   // Check if ALL tasks across ALL days are completed
   const allCompleted = plan.aiPlan.every((d) =>
-    d.tasks.every((t) => t.completed)
+    d.tasks.every((t) => t.isCompleted)
   );
+
+  // Determine previous status for notification logic
+  const wasAlreadyCompleted = plan.status === 'completed';
 
   // Auto-update plan status
   if (allCompleted) {
@@ -163,6 +167,16 @@ const toggleTaskStatusInDB = async (
   }
 
   await plan.save();
+
+  // Notification: if plan just became completed, send congratulations
+  if (allCompleted && !wasAlreadyCompleted) {
+    await sendNotification(
+      userId,
+      '🎉 Study Plan Completed!',
+      `Congratulations! You have finished your study plan for ${plan.subject}!`,
+      'general'
+    );
+  }
 
   return plan;
 };

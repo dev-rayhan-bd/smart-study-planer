@@ -1,8 +1,8 @@
 import { Types } from 'mongoose';
 
 export interface ITask {
-  task: string;
-  completed: boolean;
+  title: string;
+  isCompleted: boolean;
 }
 
 export interface IDayPlan {

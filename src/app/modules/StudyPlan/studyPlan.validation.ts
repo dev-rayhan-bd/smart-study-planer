@@ -22,10 +22,10 @@ const createStudyPlanValidationSchema = z.object({
 });
 
 const toggleTaskValidationSchema = z.object({
-  dayIndex: z
-    .number({ required_error: 'Day index is required' })
-    .int('Day index must be an integer')
-    .nonnegative('Day index cannot be negative'),
+  day: z
+    .number({ required_error: 'Day is required' })
+    .int('Day must be an integer')
+    .nonnegative('Day cannot be negative'),
   taskIndex: z
     .number({ required_error: 'Task index is required' })
     .int('Task index must be an integer')

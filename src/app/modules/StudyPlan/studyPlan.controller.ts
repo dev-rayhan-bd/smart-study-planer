@@ -47,14 +47,14 @@ const getSinglePlan = catchAsync(async (req: Request, res: Response) => {
 });
 
 const toggleTaskStatus = catchAsync(async (req: Request, res: Response) => {
-  const { planId } = req.params;
-  const { dayIndex, taskIndex } = req.body;
+  const { id } = req.params;
+  const { day, taskIndex } = req.body;
 
   const result = await StudyPlanServices.toggleTaskStatusInDB(
-    planId as string,
-    dayIndex, 
-    taskIndex,
-    req.user.userId
+    req.user.userId,
+    id as string,
+    day,
+    taskIndex
   );
 
   sendResponse(res, {

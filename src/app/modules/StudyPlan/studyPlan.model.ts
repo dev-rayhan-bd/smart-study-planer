@@ -3,8 +3,8 @@ import { IStudyPlan } from './studyPlan.interface';
 
 const taskSchema = new Schema(
   {
-    task: { type: String, required: true },
-    completed: { type: Boolean, default: false },
+    title: { type: String, required: true },
+    isCompleted: { type: Boolean, default: false },
   },
   { _id: false }
 );
