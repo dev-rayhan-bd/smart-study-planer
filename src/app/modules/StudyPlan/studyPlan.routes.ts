@@ -4,12 +4,14 @@ import { USER_ROLE } from '../Auth/auth.constant';
 import { StudyPlanControllers } from './studyPlan.controller';
 import validateRequest from '../../middleware/validateRequest';
 import { StudyPlanValidation } from './studyPlan.validation';
+import { upload } from '../../middleware/multer';
 
 const router = express.Router();
 
 router.post(
   '/create-plan',
   auth(USER_ROLE.student),
+  upload.single('syllabus'), // Accept optional PDF file upload
   validateRequest(StudyPlanValidation.createStudyPlanValidationSchema),
   StudyPlanControllers.createStudyPlan
 );

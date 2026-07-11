@@ -48,8 +48,8 @@ export const getEmailTemplate = ({
         <div class="header">
           
             <img src="${logoUrl}" alt="Currently Logo" class="logo">
-            <h1>CURRENTLY</h1>
-            <p style="margin-top: 5px; opacity: 0.9; color: #ffffff; font-size: 14px;">One Ripple at a time.</p>
+            <h1>SYLLABIX</h1>
+            <p style="margin-top: 5px; opacity: 0.9; color: #ffffff; font-size: 14px;">Otp will expire in 10 minutes </p>
         </div>
         <div class="content">
             <h2>${title}</h2>

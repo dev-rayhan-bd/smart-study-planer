@@ -8,6 +8,7 @@ const createStudyPlan = catchAsync(async (req: Request, res: Response) => {
   const result = await StudyPlanServices.generateAiStudyPlan({
     ...req.body,
     userId: req.user.userId,
+    fileBuffer: req.file?.buffer, // PDF syllabus buffer (if uploaded)
   });
 
   sendResponse(res, {

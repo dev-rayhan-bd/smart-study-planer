@@ -1,11 +1,32 @@
 import { z } from 'zod';
 import { GoogleGenerativeAI } from '@google/generative-ai';
+import pdfParse from 'pdf-parse';
 import config from '../../config';
 import { StudyPlanModel } from './studyPlan.model';
 import AppError from '../../errors/AppError';
 import httpStatus from 'http-status';
 import QueryBuilder from '../../builder/QueryBuilder';
 import { sendNotification } from '../../utils/sendNotification';
+
+// ───────────────────────── PDF Text Extraction Helper ─────────────────────────
+const extractTextFromPDF = async (buffer: Buffer): Promise<string> => {
+  try {
+    const data = await pdfParse(buffer);
+    return data.text;
+  } catch {
+    throw new AppError(
+      httpStatus.BAD_REQUEST,
+      'Failed to extract text from the uploaded PDF. Please ensure the file is valid.'
+    );
+  }
+};
+
+// Truncate text to a maximum of ~2000 words to stay within Gemini token limits
+const truncateToWordLimit = (text: string, maxWords = 2000): string => {
+  const words = text.split(/\s+/);
+  if (words.length <= maxWords) return text;
+  return words.slice(0, maxWords).join(' ') + '... [truncated]';
+};
 
 // ───────────────────────── Zod Contract for AI Response ─────────────────────────
 const aiDayPlanSchema = z.object({
@@ -25,8 +46,9 @@ const generateAiStudyPlan = async (payload: {
   subject: string;
   examDate: string;
   difficulty: 'Easy' | 'Medium' | 'Hard';
-  topics: string[];
+  topics?: string[];
   userId: string;
+  fileBuffer?: Buffer;
 }) => {
   if (!config.google_api_key) {
     throw new AppError(
@@ -38,8 +60,36 @@ const generateAiStudyPlan = async (payload: {
   const genAI = new GoogleGenerativeAI(config.google_api_key);
   const model = genAI.getGenerativeModel({ model: 'gemini-pro' });
 
-  // 1. Enhanced prompt — strict system instruction
-  const prompt = `You are a strict JSON generator. Your output must contain ONLY a valid JSON array of objects. Do not include introductory text, explanations, or markdown formatting like \`\`\`json ... \`\`\`. If you fail to provide strictly valid JSON, the system will crash.
+  let prompt: string;
+
+  if (payload.fileBuffer) {
+    // ───── PDF syllabus path ─────
+    const extractedText = await extractTextFromPDF(payload.fileBuffer);
+    const truncatedText = truncateToWordLimit(extractedText);
+
+    prompt = `You are a strict JSON generator. Your output must contain ONLY a valid JSON array of objects. Do not include introductory text, explanations, or markdown formatting like \`\`\`json ... \`\`\`. If you fail to provide strictly valid JSON, the system will crash.
+
+I am uploading a syllabus text extracted from a PDF. Please analyze the core topics, prioritize them, and create a day-by-day study plan until "${payload.examDate}". The subject is "${payload.subject}" and the difficulty level is "${payload.difficulty}".
+
+Syllabus Text:
+${truncatedText}
+
+Each object in the array must have:
+- "day" (number)
+- "topic" (string)
+- "tasks" (array of objects with "title" string and "isCompleted" boolean set to false)
+
+Return ONLY the JSON array, no other text.`;
+  } else {
+    // ───── Manual topics path ─────
+    if (!payload.topics || payload.topics.length === 0) {
+      throw new AppError(
+        httpStatus.BAD_REQUEST,
+        'Either upload a PDF syllabus or provide at least one topic.'
+      );
+    }
+
+    prompt = `You are a strict JSON generator. Your output must contain ONLY a valid JSON array of objects. Do not include introductory text, explanations, or markdown formatting like \`\`\`json ... \`\`\`. If you fail to provide strictly valid JSON, the system will crash.
 
 Create a day-by-day study plan for "${payload.subject}" with exam date "${payload.examDate}" and difficulty level "${payload.difficulty}". Focus on these topics: ${payload.topics.join(', ')}.
 
@@ -49,6 +99,7 @@ Each object in the array must have:
 - "tasks" (array of objects with "title" string and "isCompleted" boolean set to false)
 
 Return ONLY the JSON array, no other text.`;
+  }
 
   let text: string;
 
@@ -106,7 +157,7 @@ Return ONLY the JSON array, no other text.`;
     subject: payload.subject,
     examDate: new Date(payload.examDate),
     difficulty: payload.difficulty,
-    topics: payload.topics,
+    topics: payload.topics || validPlan.map((d) => d.topic), // Use AI-extracted topics when PDF provided
     aiPlan: validPlan,
     status: 'active',
   });

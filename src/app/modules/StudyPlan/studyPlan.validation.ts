@@ -18,7 +18,8 @@ const createStudyPlanValidationSchema = z.object({
       z.string().trim().min(1, 'Topic cannot be empty'),
       { required_error: 'At least one topic is required' }
     )
-    .min(1, 'At least one topic is required'),
+    .min(1, 'At least one topic is required')
+    .optional(), // Optional when PDF syllabus is uploaded
 });
 
 const toggleTaskValidationSchema = z.object({

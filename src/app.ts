@@ -6,7 +6,6 @@ import router from './app/routes/index';
 import globalErrorHandler from './app/middleware/globalErrorHandler';
 import notFound from './app/middleware/notFound';
 import morgan from 'morgan';
-import mongoSanitize from 'express-mongo-sanitize';
 import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
 const app: Application = express();
@@ -15,7 +14,25 @@ const app: Application = express();
 
 // --- HIGH SECURITY MIDDLEWARES ---
 app.use(helmet()); // HTTP headers security
-app.use(mongoSanitize()); // NoSQL injection protection (e.g: email: {"$gt": ""})
+// Custom NoSQL sanitize — compatible with Express v5
+app.use((req: Request, _res: Response, next) => {
+  const sanitize = (obj: Record<string, unknown>) => {
+    if (obj && typeof obj === 'object' && !Array.isArray(obj)) {
+      for (const key of Object.keys(obj)) {
+        if (key.startsWith('$') || key.includes('.')) {
+          delete obj[key];
+        } else if (typeof obj[key] === 'object' && obj[key] !== null) {
+          sanitize(obj[key] as Record<string, unknown>);
+        }
+      }
+    }
+  };
+
+  if (req.body) sanitize(req.body as Record<string, unknown>);
+  if (req.query) sanitize(req.query as Record<string, unknown>);
+  if (req.params) sanitize(req.params as Record<string, unknown>);
+  next();
+});
 
 // --- RATE LIMITING ---
 const limiter = rateLimit({
