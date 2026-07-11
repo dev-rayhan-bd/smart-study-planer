@@ -65,9 +65,23 @@ const toggleTaskStatus = catchAsync(async (req: Request, res: Response) => {
   });
 });
 
+const getDashboardSummary = catchAsync(async (req: Request, res: Response) => {
+  const result = await StudyPlanServices.getStudentDashboardSummaryFromDB(
+    req.user.userId
+  );
+
+  sendResponse(res, {
+    statusCode: httpStatus.OK,
+    success: true,
+    message: 'Dashboard summary retrieved successfully',
+    data: result,
+  });
+});
+
 export const StudyPlanControllers = {
   createStudyPlan,
   getMyPlans,
   getSinglePlan,
   toggleTaskStatus,
+  getDashboardSummary,
 };

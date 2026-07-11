@@ -21,6 +21,12 @@ router.get(
 );
 
 router.get(
+  '/dashboard/summary',
+  auth(USER_ROLE.student),
+  StudyPlanControllers.getDashboardSummary
+);
+
+router.get(
   '/my-plans/:id',
   auth(USER_ROLE.student, USER_ROLE.admin, USER_ROLE.superAdmin),
   StudyPlanControllers.getSinglePlan
