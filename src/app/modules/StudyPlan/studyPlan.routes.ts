@@ -26,4 +26,11 @@ router.get(
   StudyPlanControllers.getSinglePlan
 );
 
+router.patch(
+  '/toggle-task/:planId',
+  auth(USER_ROLE.student),
+  validateRequest(StudyPlanValidation.toggleTaskValidationSchema),
+  StudyPlanControllers.toggleTaskStatus
+);
+
 export const StudyPlanRoutes = router;

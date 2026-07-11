@@ -60,13 +60,25 @@ const generateAiStudyPlan = async (payload: {
     );
   }
 
+  // Transform AI response: convert plain task strings to { task, completed }
+  const transformedPlan = aiPlan.map(
+    (day: { day: number; topic: string; tasks: string[] }) => ({
+      day: day.day,
+      topic: day.topic,
+      tasks: day.tasks.map((task: string) => ({
+        task,
+        completed: false,
+      })),
+    })
+  );
+
   const studyPlan = await StudyPlanModel.create({
     user: payload.userId,
     subject: payload.subject,
     examDate: new Date(payload.examDate),
     difficulty: payload.difficulty,
     topics: payload.topics,
-    aiPlan,
+    aiPlan: transformedPlan,
     status: 'active',
   });
 
@@ -106,8 +118,58 @@ const getSinglePlanFromDB = async (planId: string, userId: string) => {
   return plan;
 };
 
+const toggleTaskStatusInDB = async (
+  planId: string,
+  dayIndex: number,
+  taskIndex: number,
+  userId: string
+) => {
+  // Fetch plan — scoped to the owning user
+  const plan = await StudyPlanModel.findOne({ _id: planId, user: userId });
+  if (!plan) {
+    throw new AppError(httpStatus.NOT_FOUND, 'Study plan not found');
+  }
+
+  // Validate dayIndex bounds
+  if (dayIndex < 0 || dayIndex >= plan.aiPlan.length) {
+    throw new AppError(
+      httpStatus.BAD_REQUEST,
+      'Invalid day index'
+    );
+  }
+
+  // Validate taskIndex bounds
+  const day = plan.aiPlan[dayIndex];
+  if (taskIndex < 0 || taskIndex >= day.tasks.length) {
+    throw new AppError(
+      httpStatus.BAD_REQUEST,
+      'Invalid task index'
+    );
+  }
+
+  // Toggle the task's completed status
+  day.tasks[taskIndex].completed = !day.tasks[taskIndex].completed;
+
+  // Check if ALL tasks across ALL days are completed
+  const allCompleted = plan.aiPlan.every((d) =>
+    d.tasks.every((t) => t.completed)
+  );
+
+  // Auto-update plan status
+  if (allCompleted) {
+    plan.status = 'completed';
+  } else {
+    plan.status = 'active';
+  }
+
+  await plan.save();
+
+  return plan;
+};
+
 export const StudyPlanServices = {
   generateAiStudyPlan,
   getMyPlansFromDB,
   getSinglePlanFromDB,
+  toggleTaskStatusInDB,
 };

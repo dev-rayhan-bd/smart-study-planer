@@ -1,9 +1,14 @@
 import { Types } from 'mongoose';
 
+export interface ITask {
+  task: string;
+  completed: boolean;
+}
+
 export interface IDayPlan {
   day: number;
   topic: string;
-  tasks: string[];
+  tasks: ITask[];
 }
 
 export interface IStudyPlan {

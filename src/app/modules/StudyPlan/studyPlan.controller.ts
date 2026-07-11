@@ -34,7 +34,7 @@ const getMyPlans = catchAsync(async (req: Request, res: Response) => {
 
 const getSinglePlan = catchAsync(async (req: Request, res: Response) => {
   const result = await StudyPlanServices.getSinglePlanFromDB(
-    req.params.id,
+    req.params.id as string,
     req.user.userId
   );
 
@@ -46,8 +46,28 @@ const getSinglePlan = catchAsync(async (req: Request, res: Response) => {
   });
 });
 
+const toggleTaskStatus = catchAsync(async (req: Request, res: Response) => {
+  const { planId } = req.params;
+  const { dayIndex, taskIndex } = req.body;
+
+  const result = await StudyPlanServices.toggleTaskStatusInDB(
+    planId as string,
+    dayIndex, 
+    taskIndex,
+    req.user.userId
+  );
+
+  sendResponse(res, {
+    statusCode: httpStatus.OK,
+    success: true,
+    message: 'Task status updated successfully',
+    data: result,
+  });
+});
+
 export const StudyPlanControllers = {
   createStudyPlan,
   getMyPlans,
   getSinglePlan,
+  toggleTaskStatus,
 };

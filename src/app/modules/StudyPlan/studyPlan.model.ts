@@ -1,11 +1,19 @@
 import { Schema, model } from 'mongoose';
 import { IStudyPlan } from './studyPlan.interface';
 
+const taskSchema = new Schema(
+  {
+    task: { type: String, required: true },
+    completed: { type: Boolean, default: false },
+  },
+  { _id: false }
+);
+
 const dayPlanSchema = new Schema(
   {
     day: { type: Number, required: true },
     topic: { type: String, required: true },
-    tasks: [{ type: String, required: true }],
+    tasks: [taskSchema],
   },
   { _id: false }
 );
