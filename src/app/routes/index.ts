@@ -9,6 +9,7 @@ import { ContactRoutes } from '../modules/ContactUs/contact.route';
 import { AdminRoutes } from '../modules/Admin/admin.routes';
 import { NotificationRoutes } from '../modules/Notification/notification.routes';
 import { StudyPlanRoutes } from '../modules/StudyPlan/studyPlan.routes';
+import { ChatRoutes } from '../modules/Chat/chat.routes';
 
 const router = Router();
 
@@ -52,6 +53,10 @@ const moduleRoutes = [
   {
     path: '/study-plans',
     route: StudyPlanRoutes,
+  },
+  {
+    path: '/chat',
+    route: ChatRoutes,
   },
 ];
 

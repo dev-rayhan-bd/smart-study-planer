@@ -8,6 +8,7 @@ import AppError from '../../errors/AppError';
 import httpStatus from 'http-status';
 import QueryBuilder from '../../builder/QueryBuilder';
 import { sendNotification } from '../../utils/sendNotification';
+import { ChatServices } from '../Chat/chat.service';
 
 // ───────────────────────── PDF Text Extraction Helper ─────────────────────────
 const extractTextFromPDF = async (buffer: Buffer): Promise<string> => {
@@ -307,6 +308,24 @@ Rules — follow exactly:
     `Your AI study plan for ${payload.subject} is ready! Check it out in My Plans.`,
     'general'
   );
+
+  // ───── 6. Background: Ingest PDF into vector DB for RAG chat ─────
+  if (payload.fileBuffer) {
+    const planId = studyPlan._id.toString();
+    // Fire-and-forget — don't block the response
+    ChatServices.ingestSyllabusToVectorDB(payload.fileBuffer, planId, payload.userId)
+      .then((ingestResult) => {
+        console.log(
+          `✅ RAG ingestion complete for plan ${planId}: ${ingestResult.chunksStored} chunks indexed.`
+        );
+      })
+      .catch((err) => {
+        console.error(
+          `⚠️ RAG ingestion failed for plan ${planId} (non-blocking):`,
+          err?.message || err
+        );
+      });
+  }
 
   return studyPlan;
 };
