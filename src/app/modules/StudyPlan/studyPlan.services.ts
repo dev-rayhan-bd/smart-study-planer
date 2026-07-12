@@ -1,6 +1,7 @@
 import { z } from 'zod';
-import { GoogleGenerativeAI } from '@google/generative-ai';
-import pdfParse from 'pdf-parse';
+import Groq from 'groq-sdk';
+import OpenAI from 'openai';
+import { PDFParse } from 'pdf-parse';
 import config from '../../config';
 import { StudyPlanModel } from './studyPlan.model';
 import AppError from '../../errors/AppError';
@@ -11,8 +12,10 @@ import { sendNotification } from '../../utils/sendNotification';
 // ───────────────────────── PDF Text Extraction Helper ─────────────────────────
 const extractTextFromPDF = async (buffer: Buffer): Promise<string> => {
   try {
-    const data = await pdfParse(buffer);
-    return data.text;
+    const parser = new PDFParse({ data: buffer });
+    const result = await parser.getText();
+    await parser.destroy();
+    return result.text;
   } catch {
     throw new AppError(
       httpStatus.BAD_REQUEST,
@@ -21,7 +24,20 @@ const extractTextFromPDF = async (buffer: Buffer): Promise<string> => {
   }
 };
 
-// Truncate text to a maximum of ~2000 words to stay within Gemini token limits
+// ───────────────────────── Text Cleaning Helper ─────────────────────────
+/** Collapse whitespace, trim lines, and reduce token size before sending to AI. */
+const cleanExtractedText = (text: string): string => {
+  return text
+    .replace(/\r\n/g, '\n')       // normalize line endings
+    .replace(/\t/g, ' ')          // tabs → spaces
+    .replace(/[ \t]+/g, ' ')      // collapse multiple spaces
+    .replace(/\n{3,}/g, '\n\n')   // max 2 consecutive newlines
+    .replace(/^\s+/gm, '')        // trim leading whitespace per line
+    .replace(/\s+$/gm, '')        // trim trailing whitespace per line
+    .trim();
+};
+
+// Truncate text to a maximum of ~2000 words to stay within AI token limits
 const truncateToWordLimit = (text: string, maxWords = 2000): string => {
   const words = text.split(/\s+/);
   if (words.length <= maxWords) return text;
@@ -31,95 +47,83 @@ const truncateToWordLimit = (text: string, maxWords = 2000): string => {
 // ───────────────────────── Zod Contract for AI Response ─────────────────────────
 const aiDayPlanSchema = z.object({
   day: z.number().int().nonnegative(),
+  session: z.enum(['Morning', 'Afternoon', 'Evening']),
   topic: z.string().min(1),
-  tasks: z.array(
-    z.object({
-      title: z.string().min(1),
-      isCompleted: z.literal(false),
-    })
-  ).min(1),
+  tasks: z
+    .array(
+      z.object({
+        title: z.string().min(1),
+        estimatedMinutes: z.number().int().positive(),
+        isCompleted: z.literal(false),
+      })
+    )
+    .min(1),
+  isRevisionDay: z.boolean(),
 });
 
 const aiStudyPlanResponseSchema = z.array(aiDayPlanSchema).min(1);
 
-const generateAiStudyPlan = async (payload: {
-  subject: string;
-  examDate: string;
-  difficulty: 'Easy' | 'Medium' | 'Hard';
-  topics?: string[];
-  userId: string;
-  fileBuffer?: Buffer;
-}) => {
-  if (!config.google_api_key) {
-    throw new AppError(
-      httpStatus.INTERNAL_SERVER_ERROR,
-      'Google API key is not configured'
-    );
-  }
+// ───────────────────────── AI Provider Strategy ─────────────────────────
 
-  const genAI = new GoogleGenerativeAI(config.google_api_key);
-  const model = genAI.getGenerativeModel({ model: 'gemini-pro' });
+/** Try generating the study plan with Groq (primary — free tier). */
+const callGroq = async (
+  client: Groq,
+  systemMessage: string,
+  userMessage: string
+): Promise<string> => {
+  const result = await client.chat.completions.create({
+    messages: [
+      { role: 'system', content: systemMessage },
+      { role: 'user', content: userMessage },
+    ],
+    model: 'llama-3.3-70b-versatile',
+    temperature: 0.1,
+    max_tokens: 16384,
+  });
+  return result.choices[0]?.message?.content || '';
+};
 
-  let prompt: string;
+/** Try generating the study plan with OpenAI (backup — paid). */
+const callOpenAI = async (
+  client: OpenAI,
+  systemMessage: string,
+  userMessage: string
+): Promise<string> => {
+  const result = await client.chat.completions.create({
+    messages: [
+      { role: 'system', content: systemMessage },
+      { role: 'user', content: userMessage },
+    ],
+    model: 'gpt-4o-mini',
+    temperature: 0.1,
+    max_tokens: 16384,
+  });
+  return result.choices[0]?.message?.content || '';
+};
 
-  if (payload.fileBuffer) {
-    // ───── PDF syllabus path ─────
-    const extractedText = await extractTextFromPDF(payload.fileBuffer);
-    const truncatedText = truncateToWordLimit(extractedText);
+/** Determine whether an error from Groq is retryable (rate-limit / server error). */
+const isRetryableGroqError = (error: any): boolean => {
+  const msg = String(error?.message || '');
+  const status = error?.status ?? error?.code ?? 0;
+  return (
+    status === 429 ||
+    status === 503 ||
+    msg.includes('429') ||
+    msg.includes('rate') ||
+    msg.includes('quota') ||
+    msg.includes('Too Many Requests') ||
+    msg.includes('Service Unavailable')
+  );
+};
 
-    prompt = `You are a strict JSON generator. Your output must contain ONLY a valid JSON array of objects. Do not include introductory text, explanations, or markdown formatting like \`\`\`json ... \`\`\`. If you fail to provide strictly valid JSON, the system will crash.
+// ───────────────────────── Extract & Validate AI Response ─────────────────────────
 
-I am uploading a syllabus text extracted from a PDF. Please analyze the core topics, prioritize them, and create a day-by-day study plan until "${payload.examDate}". The subject is "${payload.subject}" and the difficulty level is "${payload.difficulty}".
-
-Syllabus Text:
-${truncatedText}
-
-Each object in the array must have:
-- "day" (number)
-- "topic" (string)
-- "tasks" (array of objects with "title" string and "isCompleted" boolean set to false)
-
-Return ONLY the JSON array, no other text.`;
-  } else {
-    // ───── Manual topics path ─────
-    if (!payload.topics || payload.topics.length === 0) {
-      throw new AppError(
-        httpStatus.BAD_REQUEST,
-        'Either upload a PDF syllabus or provide at least one topic.'
-      );
-    }
-
-    prompt = `You are a strict JSON generator. Your output must contain ONLY a valid JSON array of objects. Do not include introductory text, explanations, or markdown formatting like \`\`\`json ... \`\`\`. If you fail to provide strictly valid JSON, the system will crash.
-
-Create a day-by-day study plan for "${payload.subject}" with exam date "${payload.examDate}" and difficulty level "${payload.difficulty}". Focus on these topics: ${payload.topics.join(', ')}.
-
-Each object in the array must have:
-- "day" (number)
-- "topic" (string)
-- "tasks" (array of objects with "title" string and "isCompleted" boolean set to false)
-
-Return ONLY the JSON array, no other text.`;
-  }
-
-  let text: string;
-
-  // 2. Robust AI call with try-catch
-  try {
-    const result = await model.generateContent(prompt);
-    text = result.response.text();
-  } catch (error) {
-    console.error('❌ Gemini API call failed:', error);
-    throw new AppError(
-      httpStatus.INTERNAL_SERVER_ERROR,
-      'AI service is currently unavailable. Please try again later.'
-    );
-  }
-
-  // 3. Regex-based extraction — find the JSON array anywhere in the response
+/** Shared pipeline: regex-extract JSON, then Zod-validate. */
+const extractAndValidatePlan = (rawText: string) => {
   const jsonRegex = /\[.*\]/s;
-  const jsonMatch = text.match(jsonRegex);
+  const jsonMatch = rawText.match(jsonRegex);
   if (!jsonMatch) {
-    console.error('❌ No JSON array found in AI response. Raw text:', text);
+    console.error('❌ No JSON array found in AI response. Raw text:', rawText);
     throw new AppError(
       httpStatus.INTERNAL_SERVER_ERROR,
       'Failed to generate study plan – AI returned an unexpected response format.'
@@ -130,14 +134,13 @@ Return ONLY the JSON array, no other text.`;
   try {
     parsed = JSON.parse(jsonMatch[0]);
   } catch {
-    console.error('❌ JSON parse failed. Raw text from Gemini:', text);
+    console.error('❌ JSON parse failed. Raw text from AI:', rawText);
     throw new AppError(
       httpStatus.INTERNAL_SERVER_ERROR,
       'Failed to parse AI-generated study plan. The AI returned malformed JSON.'
     );
   }
 
-  // 4. Zod validation — guarantee the structure before saving to DB
   const validationResult = aiStudyPlanResponseSchema.safeParse(parsed);
   if (!validationResult.success) {
     console.error(
@@ -150,14 +153,149 @@ Return ONLY the JSON array, no other text.`;
     );
   }
 
-  const validPlan = validationResult.data;
+  return validationResult.data;
+};
+
+// ───────────────────────── Main Service ─────────────────────────
+
+const generateAiStudyPlan = async (payload: {
+  subject: string;
+  startDate: string;
+  examDate: string;
+  difficulty: 'Easy' | 'Medium' | 'Hard';
+  topics?: string[];
+  userId: string;
+  fileBuffer?: Buffer;
+}) => {
+  // ───── 0. Validate API keys up front ─────
+  if (!config.groq_api_key) {
+    throw new AppError(
+      httpStatus.INTERNAL_SERVER_ERROR,
+      'Groq API key is not configured'
+    );
+  }
+
+  // ───── 1. Calculate time available from startDate → examDate ─────
+  const start = new Date(payload.startDate);
+  const exam = new Date(payload.examDate);
+  const diffMs = exam.getTime() - start.getTime();
+  const totalDaysAvailable = Math.max(1, Math.ceil(diffMs / (1000 * 60 * 60 * 24)));
+  const isEmergencyMode = totalDaysAvailable <= 1;
+
+  // ───── 2. Extract & clean syllabus text (if PDF uploaded) ─────
+  let syllabusText = '';
+  if (payload.fileBuffer) {
+    const extractedText = await extractTextFromPDF(payload.fileBuffer);
+    const cleanedText = cleanExtractedText(extractedText);
+    syllabusText = truncateToWordLimit(cleanedText);
+
+    console.log('📄 Extracted PDF text (first 500 chars):', syllabusText.substring(0, 500));
+
+    if (!syllabusText || syllabusText.trim().length < 20) {
+      throw new AppError(
+        httpStatus.BAD_REQUEST,
+        'The uploaded PDF appears to contain very little or no readable text. Please upload a valid syllabus PDF.'
+      );
+    }
+  } else if (!payload.topics || payload.topics.length === 0) {
+    throw new AppError(
+      httpStatus.BAD_REQUEST,
+      'Either upload a PDF syllabus or provide at least one topic.'
+    );
+  }
+
+  // ───── 3. Build the high-speed, density-balanced AI prompt ─────
+  const systemMessage = `You are a high-speed Syllabus Analyzer. Do NOT use chain-of-thought — read the input and output raw JSON immediately. You always respond with ONLY a valid JSON array — no markdown, no explanations, no extra text.`;
+
+  const contentSource = syllabusText
+    ? `--- SYLLABUS CONTENT ---\n${syllabusText}\n--- END SYLLABUS ---`
+    : `Topics to cover (ALL must be included): ${payload.topics!.join(', ')}`;
+
+  const modeLabel = isEmergencyMode
+    ? '🚨 EMERGENCY STUDY MODE — Only 1 day! Pack ALL topics. 8-10 tasks per session. No breaks.'
+    : '';
+
+  const userMessage = `I provide syllabus text from a PDF and a timeframe of ${totalDaysAvailable} days.
+
+Context:
+- Exam Date: ${payload.examDate}
+- Total Days Available: ${totalDaysAvailable} day(s).
+- Difficulty: ${payload.difficulty}
+
+${contentSource}
+
+${modeLabel}
+
+Rules — follow exactly:
+1. Zero-Skip Policy: Extract EVERY heading and sub-topic. Do NOT combine into vague summaries.
+2. Proportional Allocation: A 5-line topic → 15-20 min. A 5-page topic → 90-120 min.
+3. Session Packing: Divide each day into "Morning", "Afternoon", "Evening". If short on time, pack multiple topics per session. If time is long, spread them out.
+4. Subject Identity: Identify the actual subject from the PDF. Ignore "Operating Systems" if the text is about "Bangladesh Studies".
+5. No Hallucination: Use ONLY topics present in the provided text.
+6. Last Day: The final day BEFORE the exam MUST be "Full Syllabus Rapid Revision" — set isRevisionDay=true for ALL entries on that day.
+
+✅ Output ONLY this JSON array:
+[{"day":1,"session":"Morning","topic":"Exact Topic Name","tasks":[{"title":"Sub-topic detail","estimatedMinutes":45,"isCompleted":false}],"isRevisionDay":false}]`;
+
+  // ───── 4. Failover Strategy: Groq → OpenAI ─────
+  const groqClient = new Groq({ apiKey: config.groq_api_key });
+
+  let rawText: string;
+
+  // Step A — Try Groq (primary)
+  try {
+    console.log('🤖 Attempting Groq (primary)...');
+    rawText = await callGroq(groqClient, systemMessage, userMessage);
+    console.log('✅ Groq succeeded.');
+  } catch (groqError: any) {
+    console.warn('⚠️ Groq failed:', groqError?.message || groqError);
+
+    // Step B — Check if we should fallback to OpenAI
+    if (isRetryableGroqError(groqError)) {
+      console.warn('🔁 Groq rate-limited / unavailable. Switching to OpenAI (backup)...');
+
+      if (!config.openai_api_key) {
+        throw new AppError(
+          httpStatus.INTERNAL_SERVER_ERROR,
+          'Groq is rate-limited and OpenAI backup key is not configured. Please try again later.'
+        );
+      }
+
+      // Step C — Retry with OpenAI
+      try {
+        const openaiClient = new OpenAI({ apiKey: config.openai_api_key });
+        rawText = await callOpenAI(openaiClient, systemMessage, userMessage);
+        console.log('✅ OpenAI backup succeeded.');
+      } catch (openaiError: any) {
+        console.error('❌ OpenAI backup also failed:', openaiError?.message || openaiError);
+        throw new AppError(
+          httpStatus.INTERNAL_SERVER_ERROR,
+          'Both AI services are currently unavailable. Please try again later.'
+        );
+      }
+    } else {
+      // Non-retryable Groq error (bad request, auth, etc.)
+      throw new AppError(
+        httpStatus.INTERNAL_SERVER_ERROR,
+        `AI service error: ${groqError?.message || 'Unknown error'}`
+      );
+    }
+  }
+
+  console.log('🤖 AI raw response (first 500 chars):', rawText.substring(0, 500));
+
+  // ───── 5. Extract & validate JSON from AI response ─────
+  const validPlan = extractAndValidatePlan(rawText);
+
+  // Extract unique topics from the AI plan for storage
+  const uniqueTopics = [...new Set(validPlan.map((d) => d.topic).filter(Boolean))];
 
   const studyPlan = await StudyPlanModel.create({
     user: payload.userId,
     subject: payload.subject,
     examDate: new Date(payload.examDate),
     difficulty: payload.difficulty,
-    topics: payload.topics || validPlan.map((d) => d.topic), // Use AI-extracted topics when PDF provided
+    topics: uniqueTopics,
     aiPlan: validPlan,
     status: 'active',
   });

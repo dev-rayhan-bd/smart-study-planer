@@ -12,6 +12,17 @@ router.post(
   '/create-plan',
   auth(USER_ROLE.student),
   upload.single('syllabus'), // Accept optional PDF file upload
+  (req: express.Request, _res: express.Response, next: express.NextFunction) => {
+    // When sent as form-data with a "body" text field, parse the JSON string
+    if (req.body?.body) {
+      try {
+        req.body = JSON.parse(req.body.body);
+      } catch {
+        // If not JSON, keep req.body as-is for validation to handle
+      }
+    }
+    next();
+  },
   validateRequest(StudyPlanValidation.createStudyPlanValidationSchema),
   StudyPlanControllers.createStudyPlan
 );

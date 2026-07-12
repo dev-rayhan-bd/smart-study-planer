@@ -2,13 +2,16 @@ import { Types } from 'mongoose';
 
 export interface ITask {
   title: string;
+  estimatedMinutes: number;
   isCompleted: boolean;
 }
 
 export interface IDayPlan {
   day: number;
+  session: 'Morning' | 'Afternoon' | 'Evening';
   topic: string;
   tasks: ITask[];
+  isRevisionDay: boolean;
 }
 
 export interface IStudyPlan {

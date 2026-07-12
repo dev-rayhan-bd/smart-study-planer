@@ -4,6 +4,7 @@ import { IStudyPlan } from './studyPlan.interface';
 const taskSchema = new Schema(
   {
     title: { type: String, required: true },
+    estimatedMinutes: { type: Number, required: true },
     isCompleted: { type: Boolean, default: false },
   },
   { _id: false }
@@ -12,8 +13,14 @@ const taskSchema = new Schema(
 const dayPlanSchema = new Schema(
   {
     day: { type: Number, required: true },
+    session: {
+      type: String,
+      enum: ['Morning', 'Afternoon', 'Evening'],
+      required: true,
+    },
     topic: { type: String, required: true },
     tasks: [taskSchema],
+    isRevisionDay: { type: Boolean, default: false },
   },
   { _id: false }
 );
