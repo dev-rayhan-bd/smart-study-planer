@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import OpenAI from 'openai';
-import { PDFParse } from 'pdf-parse';
+// Use dynamic import for pdf-parse to avoid readFile crash in serverless
 import config from '../../config';
 import { StudyPlanModel } from './studyPlan.model';
 import AppError from '../../errors/AppError';
@@ -12,6 +12,7 @@ import { ChatServices } from '../Chat/chat.service';
 // ───────────────────────── PDF Text Extraction Helper ─────────────────────────
 const extractTextFromPDF = async (buffer: Buffer): Promise<string> => {
   try {
+    const { PDFParse } = await import('pdf-parse');
     const parser = new PDFParse({ data: buffer });
     const result = await parser.getText();
     await parser.destroy();
