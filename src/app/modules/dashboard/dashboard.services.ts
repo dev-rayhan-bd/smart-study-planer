@@ -1,6 +1,11 @@
-import { RippleModel } from '../ripple/ripple.model';
-import { WaveModel } from '../wave/wave.model';
+// TODO: Re-enable when ripple and wave modules are created
+// import { RippleModel } from '../ripple/ripple.model';
+// import { WaveModel } from '../wave/wave.model';
 import { UserModel } from '../User/user.model';
+
+// Placeholder types — remove once real models exist
+const RippleModel = null as any;
+const WaveModel = null as any;
 
 // const getDashboardSummaryFromDB = async (userId: string) => {
 //   const today = new Date();
