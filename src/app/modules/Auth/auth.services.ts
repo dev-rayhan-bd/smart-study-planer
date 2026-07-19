@@ -25,12 +25,13 @@ const registeredUserIntoDB = async (payload: TUser) => {
 
   // Generate 6-digit OTP
   const otp = Math.floor(100000 + Math.random() * 900000).toString();
+  const hashedOtp = await bcrypt.hash(otp, 10);
 
   const newUserData = {
     ...payload,
     status: initialStatus,
     verification: {
-      code: otp,
+      code: hashedOtp,
       expireDate: new Date(Date.now() + 5 * 60 * 1000), // 5-minute expiry
     },
   };
@@ -119,10 +120,11 @@ const resendOTP = async (email: string) => {
   if (!user) throw new AppError(httpStatus.NOT_FOUND, "User not found!");
 
   const otp = Math.floor(100000 + Math.random() * 900000).toString();
+  const hashedOtp = await bcrypt.hash(otp, 10);
 
   await UserModel.findByIdAndUpdate(user._id, {
     verification: {
-      code: otp,
+      code: hashedOtp,
       expireDate: new Date(Date.now() + 5 * 60 * 1000),
     },
   });
@@ -168,9 +170,6 @@ if (!user.password) {
   if (!user.isOtpVerified) {
     throw new AppError(httpStatus.FORBIDDEN, "Please verify your email via OTP first!");
   }
-
-  // Update FCM Token for notifications
-  await UserModel.findByIdAndUpdate(user._id, { fcmToken: payload.fcmToken });
 
   const jwtPayload = {
     userId: user._id!.toString(),
@@ -257,10 +256,11 @@ const forgotPass = async (email: string) => {
   if (!user) throw new AppError(httpStatus.NOT_FOUND, "No user found with this email");
 
   const otp = Math.floor(100000 + Math.random() * 900000).toString();
-  
+  const hashedOtp = await bcrypt.hash(otp, 10);
+
   await UserModel.findByIdAndUpdate(user._id, {
     verification: {
-      code: otp,
+      code: hashedOtp,
       expireDate: new Date(Date.now() + 5 * 60 * 1000),
     },
   });
@@ -337,7 +337,6 @@ const logoutUserFromDB = async (userId: string) => {
     userId,
     {
       $set: {
-        fcmToken: null, 
         googleRefreshToken: null 
       }
     },

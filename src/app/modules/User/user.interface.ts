@@ -15,7 +15,6 @@ export interface TUser {
     expireDate: Date | null;
   };
   status: 'active' | 'blocked';
-  fcmToken?: string;
   role: TUserRole;
   isOtpVerified: boolean;
   passwordChangedAt?: Date;

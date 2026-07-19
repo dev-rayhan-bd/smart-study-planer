@@ -16,7 +16,7 @@ export const getEmailTemplate = ({
   buttonLink,
 }: IEmailOptions): string => {
 
-  const logoUrl = "https://res.cloudinary.com/da1uxchgo/image/upload/v1777790051/Gemini_Generated_Image_wss4dywss4dywss4-removebg-preview_1_lyuwch.png";
+  const logoUrl = "https://res.cloudinary.com/dffzmnts9/image/upload/v1784431765/el-afrik/i1gakxognc0yitkthwjm.png";
 
   return `
 <!DOCTYPE html>
@@ -47,7 +47,7 @@ export const getEmailTemplate = ({
     <div class="container">
         <div class="header">
           
-            <img src="${logoUrl}" alt="Currently Logo" class="logo">
+            <img src="${logoUrl}" alt="Sylabix Logo" class="logo">
             <h1>SYLLABIX</h1>
             <p style="margin-top: 5px; opacity: 0.9; color: #ffffff; font-size: 14px;">Otp will expire in 10 minutes </p>
         </div>

@@ -52,13 +52,11 @@ const registerUserValidationSchema = z.object({
   password: passwordSchema,
   
   institution: z.string().trim().max(100).optional(),
-  fcmToken: z.string().trim().optional(),
 });
 
 const loginValidationSchema = z.object({
   email: emailSchema,
   password: z.string().min(1, { message: "Password is required" }),
-  fcmToken: z.string().trim().optional(),
 });
 
 const AdminloginValidationSchema = z.object({

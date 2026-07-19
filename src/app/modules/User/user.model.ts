@@ -28,7 +28,6 @@ const userSchema = new Schema<TUser, User, IUserMethods>(
       enum: ["student", "admin", "superAdmin"], 
       default: "student" 
     },
-    fcmToken: { type: String },
     isOtpVerified: { type: Boolean, default: false },
     passwordChangedAt: { type: Date },
   },
