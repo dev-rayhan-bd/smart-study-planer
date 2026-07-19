@@ -49,13 +49,12 @@ const getSinglePlan = catchAsync(async (req: Request, res: Response) => {
 
 const toggleTaskStatus = catchAsync(async (req: Request, res: Response) => {
   const { id } = req.params;
-  const { day, taskIndex } = req.body;
+  const { taskId } = req.body;
 
   const result = await StudyPlanServices.toggleTaskStatusInDB(
     req.user.userId,
     id as string,
-    day,
-    taskIndex
+    taskId
   );
 
   sendResponse(res, {
@@ -79,10 +78,25 @@ const getDashboardSummary = catchAsync(async (req: Request, res: Response) => {
   });
 });
 
+const deleteStudyPlan = catchAsync(async (req: Request, res: Response) => {
+  const result = await StudyPlanServices.deleteStudyPlanFromDB(
+    req.params.id as string,
+    req.user.userId
+  );
+
+  sendResponse(res, {
+    statusCode: httpStatus.OK,
+    success: true,
+    message: 'Study plan deleted successfully',
+    data: result,
+  });
+});
+
 export const StudyPlanControllers = {
   createStudyPlan,
   getMyPlans,
   getSinglePlan,
+  deleteStudyPlan,
   toggleTaskStatus,
   getDashboardSummary,
 };

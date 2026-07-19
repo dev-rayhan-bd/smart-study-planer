@@ -355,11 +355,18 @@ const getSinglePlanFromDB = async (planId: string, userId: string) => {
   return plan;
 };
 
+const deleteStudyPlanFromDB = async (planId: string, userId: string) => {
+  const plan = await StudyPlanModel.findOneAndDelete({ _id: planId, user: userId });
+  if (!plan) {
+    throw new AppError(httpStatus.NOT_FOUND, 'Study plan not found');
+  }
+  return plan;
+};
+
 const toggleTaskStatusInDB = async (
   userId: string,
   planId: string,
-  dayNumber: number,
-  taskIndex: number
+  taskId: string
 ) => {
   // Security check: ensure the plan belongs to the userId
   const plan = await StudyPlanModel.findOne({ _id: planId });
@@ -374,29 +381,37 @@ const toggleTaskStatusInDB = async (
     );
   }
 
-  // Validate dayNumber bounds
-  if (dayNumber < 0 || dayNumber >= plan.aiPlan.length) {
-    throw new AppError(httpStatus.BAD_REQUEST, 'Invalid day number');
+  // Find the task across all days using MongoDB _id
+  let found = false;
+  for (const day of plan.aiPlan) {
+    const task = day.tasks.find((t) => t._id?.toString() === taskId);
+    if (task) {
+      task.isCompleted = !task.isCompleted;
+      found = true;
+      break;
+    }
   }
 
-  // Validate taskIndex bounds
-  const day = plan.aiPlan[dayNumber];
-  if (taskIndex < 0 || taskIndex >= day.tasks.length) {
-    throw new AppError(httpStatus.BAD_REQUEST, 'Invalid task index');
+  if (!found) {
+    throw new AppError(httpStatus.BAD_REQUEST, 'Task not found in this plan');
   }
 
-  // Toggle the task's isCompleted value
-  day.tasks[taskIndex].isCompleted = !day.tasks[taskIndex].isCompleted;
+  // Calculate progress
+  let totalTasks = 0;
+  let completedTasks = 0;
+  for (const d of plan.aiPlan) {
+    totalTasks += d.tasks.length;
+    completedTasks += d.tasks.filter((t) => t.isCompleted).length;
+  }
+  const progressPercentage = totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0;
 
   // Check if ALL tasks across ALL days are completed
   const allCompleted = plan.aiPlan.every((d) =>
     d.tasks.every((t) => t.isCompleted)
   );
 
-  // Determine previous status for notification logic
   const wasAlreadyCompleted = plan.status === 'completed';
 
-  // Auto-update plan status
   if (allCompleted) {
     plan.status = 'completed';
   } else {
@@ -405,7 +420,6 @@ const toggleTaskStatusInDB = async (
 
   await plan.save();
 
-  // Notification: if plan just became completed, send congratulations
   if (allCompleted && !wasAlreadyCompleted) {
     await sendNotification(
       userId,
@@ -415,7 +429,14 @@ const toggleTaskStatusInDB = async (
     );
   }
 
-  return plan;
+  return {
+    plan,
+    progress: {
+      completedTasks,
+      totalTasks,
+      percentage: progressPercentage,
+    },
+  };
 };
 
 /**
@@ -536,6 +557,7 @@ export const StudyPlanServices = {
   generateAiStudyPlan,
   getMyPlansFromDB,
   getSinglePlanFromDB,
+  deleteStudyPlanFromDB,
   toggleTaskStatusInDB,
   getStudentDashboardSummaryFromDB,
 };

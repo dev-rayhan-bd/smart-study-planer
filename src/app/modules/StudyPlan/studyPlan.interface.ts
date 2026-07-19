@@ -1,6 +1,7 @@
 import { Types } from 'mongoose';
 
 export interface ITask {
+  _id?: Types.ObjectId;
   title: string;
   estimatedMinutes: number;
   isCompleted: boolean;

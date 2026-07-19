@@ -6,8 +6,7 @@ const taskSchema = new Schema(
     title: { type: String, required: true },
     estimatedMinutes: { type: Number, required: true },
     isCompleted: { type: Boolean, default: false },
-  },
-  { _id: false }
+  }
 );
 
 const dayPlanSchema = new Schema(

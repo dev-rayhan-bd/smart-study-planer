@@ -48,8 +48,15 @@ router.get(
 router.patch(
   '/toggle-task/:id',
   auth(USER_ROLE.student),
+
   validateRequest(StudyPlanValidation.toggleTaskValidationSchema),
   StudyPlanControllers.toggleTaskStatus
+);
+
+router.delete(
+  '/my-plans/:id',
+  auth(USER_ROLE.student),
+  StudyPlanControllers.deleteStudyPlan
 );
 
 export const StudyPlanRoutes = router;
