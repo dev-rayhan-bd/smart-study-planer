@@ -92,6 +92,19 @@ const deleteStudyPlan = catchAsync(async (req: Request, res: Response) => {
   });
 });
 
+const getPlanSubjectsForDropdown = catchAsync(async (req: Request, res: Response) => {
+  const result = await StudyPlanServices.getPlanSubjectsForDropdown(
+    req.user.userId
+  );
+
+  sendResponse(res, {
+    statusCode: httpStatus.OK,
+    success: true,
+    message: 'Plan subjects retrieved successfully',
+    data: result,
+  });
+});
+
 export const StudyPlanControllers = {
   createStudyPlan,
   getMyPlans,
@@ -99,4 +112,5 @@ export const StudyPlanControllers = {
   deleteStudyPlan,
   toggleTaskStatus,
   getDashboardSummary,
+  getPlanSubjectsForDropdown,
 };

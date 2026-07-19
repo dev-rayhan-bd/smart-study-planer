@@ -34,6 +34,12 @@ router.get(
 );
 
 router.get(
+  '/dropdown/subjects',
+  auth(USER_ROLE.student),
+  StudyPlanControllers.getPlanSubjectsForDropdown
+);
+
+router.get(
   '/dashboard/summary',
   auth(USER_ROLE.student),
   StudyPlanControllers.getDashboardSummary

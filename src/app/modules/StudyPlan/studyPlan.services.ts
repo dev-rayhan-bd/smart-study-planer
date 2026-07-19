@@ -330,6 +330,23 @@ Rules — follow exactly:
   return studyPlan;
 };
 
+/**
+ * Return only _id + subject for every plan owned by the student.
+ * Ideal for dropdown / select inputs on the front-end.
+ */
+const getPlanSubjectsForDropdown = async (userId: string) => {
+  const plans = await StudyPlanModel.find({ user: userId })
+    .select('subject status')
+    .sort({ createdAt: -1 })
+    .lean();
+
+  return plans.map((p) => ({
+    id: p._id,
+    subject: p.subject,
+    status: p.status,
+  }));
+};
+
 const getMyPlansFromDB = async (
   userId: string,
   query: Record<string, unknown>
@@ -556,6 +573,7 @@ const getStudentDashboardSummaryFromDB = async (userId: string) => {
 export const StudyPlanServices = {
   generateAiStudyPlan,
   getMyPlansFromDB,
+  getPlanSubjectsForDropdown,
   getSinglePlanFromDB,
   deleteStudyPlanFromDB,
   toggleTaskStatusInDB,
