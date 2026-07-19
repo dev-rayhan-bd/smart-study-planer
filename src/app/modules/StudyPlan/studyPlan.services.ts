@@ -1,5 +1,4 @@
 import { z } from 'zod';
-import Groq from 'groq-sdk';
 import OpenAI from 'openai';
 import { PDFParse } from 'pdf-parse';
 import config from '../../config';
@@ -38,8 +37,8 @@ const cleanExtractedText = (text: string): string => {
     .trim();
 };
 
-// Truncate text to a maximum of ~2000 words to stay within AI token limits
-const truncateToWordLimit = (text: string, maxWords = 2000): string => {
+// Truncate text to a maximum of ~30000 words to cover large PDFs (30+ pages)
+const truncateToWordLimit = (text: string, maxWords = 30000): string => {
   const words = text.split(/\s+/);
   if (words.length <= maxWords) return text;
   return words.slice(0, maxWords).join(' ') + '... [truncated]';
@@ -66,25 +65,7 @@ const aiStudyPlanResponseSchema = z.array(aiDayPlanSchema).min(1);
 
 // ───────────────────────── AI Provider Strategy ─────────────────────────
 
-/** Try generating the study plan with Groq (primary — free tier). */
-const callGroq = async (
-  client: Groq,
-  systemMessage: string,
-  userMessage: string
-): Promise<string> => {
-  const result = await client.chat.completions.create({
-    messages: [
-      { role: 'system', content: systemMessage },
-      { role: 'user', content: userMessage },
-    ],
-    model: 'llama-3.3-70b-versatile',
-    temperature: 0.1,
-    max_tokens: 16384,
-  });
-  return result.choices[0]?.message?.content || '';
-};
-
-/** Try generating the study plan with OpenAI (backup — paid). */
+/** Generate the study plan with OpenAI. */
 const callOpenAI = async (
   client: OpenAI,
   systemMessage: string,
@@ -100,21 +81,6 @@ const callOpenAI = async (
     max_tokens: 16384,
   });
   return result.choices[0]?.message?.content || '';
-};
-
-/** Determine whether an error from Groq is retryable (rate-limit / server error). */
-const isRetryableGroqError = (error: any): boolean => {
-  const msg = String(error?.message || '');
-  const status = error?.status ?? error?.code ?? 0;
-  return (
-    status === 429 ||
-    status === 503 ||
-    msg.includes('429') ||
-    msg.includes('rate') ||
-    msg.includes('quota') ||
-    msg.includes('Too Many Requests') ||
-    msg.includes('Service Unavailable')
-  );
 };
 
 // ───────────────────────── Extract & Validate AI Response ─────────────────────────
@@ -168,11 +134,11 @@ const generateAiStudyPlan = async (payload: {
   userId: string;
   fileBuffer?: Buffer;
 }) => {
-  // ───── 0. Validate API keys up front ─────
-  if (!config.groq_api_key) {
+  // ───── 0. Validate API key up front ─────
+  if (!config.openai_api_key) {
     throw new AppError(
       httpStatus.INTERNAL_SERVER_ERROR,
-      'Groq API key is not configured'
+      'OpenAI API key is not configured'
     );
   }
 
@@ -205,91 +171,137 @@ const generateAiStudyPlan = async (payload: {
     );
   }
 
-  // ───── 3. Build the high-speed, density-balanced AI prompt ─────
-  const systemMessage = `You are a high-speed Syllabus Analyzer. Do NOT use chain-of-thought — read the input and output raw JSON immediately. You always respond with ONLY a valid JSON array — no markdown, no explanations, no extra text.`;
+  // ───── 3. Build the AI prompt ─────
 
   const contentSource = syllabusText
     ? `--- SYLLABUS CONTENT ---\n${syllabusText}\n--- END SYLLABUS ---`
-    : `Topics to cover (ALL must be included): ${payload.topics!.join(', ')}`;
+    : '';
 
   const modeLabel = isEmergencyMode
     ? '🚨 EMERGENCY STUDY MODE — Only 1 day! Pack ALL topics. 8-10 tasks per session. No breaks.'
     : '';
 
-  const userMessage = `I provide syllabus text from a PDF and a timeframe of ${totalDaysAvailable} days.
+  const openaiClient = new OpenAI({ apiKey: config.openai_api_key });
 
-Context:
-- Exam Date: ${payload.examDate}
-- Total Days Available: ${totalDaysAvailable} day(s).
-- Difficulty: ${payload.difficulty}
+  // ───── 4a. PASS 1: Extract ALL topics from the syllabus ─────
+  let allTopics: string[] = [];
 
+  if (syllabusText) {
+    console.log('📝 Pass 1: Extracting all topics from syllabus...');
+    const topicExtractSystemMsg = `You are a precise Syllabus Topic Extractor. Your ONLY job is to extract a complete list of ALL topics, headings, and sub-topics from the provided syllabus text. You must return ONLY a valid JSON array of strings. No markdown, no explanations, no extra text. CRITICAL: Extract EVERY topic from EVERY page. Do NOT skip, merge, or summarize any topic. If the syllabus has 50 topics, return 50 strings. If it has 100, return 100.`;
+
+    const topicExtractUserMsg = `Extract EVERY topic, heading, and sub-topic from the following syllabus text. Return them as a JSON array of strings. Each string should be ONE distinct topic/heading.
+
+RULES:
+- Read the ENTIRE text from start to finish
+- Every heading, sub-heading, and topic MUST be included
+- Do NOT skip any topic no matter how small
+- Do NOT merge different topics together
+- Do NOT add topics that are not in the text
+
+Syllabus text:
 ${contentSource}
 
+✅ Output ONLY a JSON array of topic strings:
+["Topic 1", "Topic 2", "Topic 3", ...]`;
+
+    try {
+      const topicRaw = await callOpenAI(openaiClient, topicExtractSystemMsg, topicExtractUserMsg);
+      console.log('✅ Pass 1 done. Raw response length:', topicRaw.length, 'chars');
+
+      // Extract JSON array from response
+      const topicJsonMatch = topicRaw.match(/\[.*\]/s);
+      if (topicJsonMatch) {
+        const parsed = JSON.parse(topicJsonMatch[0]);
+        if (Array.isArray(parsed)) {
+          allTopics = parsed.filter((t: any) => typeof t === 'string' && t.trim().length > 0);
+          allTopics = [...new Set(allTopics)]; // deduplicate
+          console.log(`📋 Extracted ${allTopics.length} unique topics from syllabus`);
+        }
+      }
+    } catch (err: any) {
+      console.error('⚠️ Pass 1 failed:', err?.message || err);
+      // Fallback: try to extract topics from raw text heuristically
+      const lines = syllabusText.split('\n').filter((l) => l.trim().length > 3);
+      allTopics = [...new Set(lines.map((l) => l.trim()).filter((l) => l.length > 0))];
+      console.log(`📋 Fallback: extracted ${allTopics.length} topics from text lines`);
+    }
+  }
+
+  // If topics were provided in the request body (no PDF), use those
+  if (allTopics.length === 0 && payload.topics) {
+    allTopics = payload.topics;
+  }
+
+  console.log(`📋 Total topics to plan: ${allTopics.length}`);
+
+  // ───── 4b. PASS 2: Create study plan covering ALL topics ─────
+  const systemMessage = `You are an expert Study Planner. You create a DETAILED study plan covering EVERY topic provided to you. You respond with ONLY a valid JSON array — no markdown, no explanations, no extra text.`;
+
+  const topicsForPlan = allTopics.length > 0
+    ? allTopics.map((t, i) => `${i + 1}. ${t}`).join('\n')
+    : `Topics to cover: ${payload.topics?.join(', ') || 'General study'}`;
+
+  const userMessage = `Create a complete study plan for ${totalDaysAvailable} day(s) until the exam.
+
+Context:
+- Subject: ${payload.subject}
+- Exam Date: ${payload.examDate}
+- Total Days Available: ${totalDaysAvailable} day(s)
+- Difficulty: ${payload.difficulty}
 ${modeLabel}
 
-Rules — follow exactly:
-1. Zero-Skip Policy: Extract EVERY heading and sub-topic. Do NOT combine into vague summaries.
-2. Proportional Allocation: A 5-line topic → 15-20 min. A 5-page topic → 90-120 min.
-3. Session Packing: Divide each day into "Morning", "Afternoon", "Evening". If short on time, pack multiple topics per session. If time is long, spread them out.
-4. Subject Identity: Identify the actual subject from the PDF. Ignore "Operating Systems" if the text is about "Bangladesh Studies".
-5. No Hallucination: Use ONLY topics present in the provided text.
-6. Last Day: The final day BEFORE the exam MUST be "Full Syllabus Rapid Revision" — set isRevisionDay=true for ALL entries on that day.
+CRITICAL: The following ${allTopics.length} topics MUST ALL appear in the study plan. Every single one. No exceptions.
+
+Topics to cover:
+${topicsForPlan}
+
+RULES:
+- EVERY topic listed above MUST appear in the plan. Count them. If there are ${allTopics.length} topics, the plan MUST cover all ${allTopics.length}.
+- Each topic gets its OWN day/session entry. Do NOT merge topics.
+- Proportional time: simple topic → 20-30 min, complex topic → 60-120 min.
+- Divide days into "Morning", "Afternoon", "Evening" sessions.
+- Last Day BEFORE the exam: "Full Syllabus Rapid Revision" — isRevisionDay=true for ALL entries on that day.
 
 ✅ Output ONLY this JSON array:
-[{"day":1,"session":"Morning","topic":"Exact Topic Name","tasks":[{"title":"Sub-topic detail","estimatedMinutes":45,"isCompleted":false}],"isRevisionDay":false}]`;
+[{"day":1,"session":"Morning","topic":"Exact Topic Name","tasks":[{"title":"Task detail","estimatedMinutes":45,"isCompleted":false}],"isRevisionDay":false}]`;
 
-  // ───── 4. Failover Strategy: Groq → OpenAI ─────
-  const groqClient = new Groq({ apiKey: config.groq_api_key });
-
+  // ───── 5. Call OpenAI ─────
   let rawText: string;
 
-  // Step A — Try Groq (primary)
   try {
-    console.log('🤖 Attempting Groq (primary)...');
-    rawText = await callGroq(groqClient, systemMessage, userMessage);
-    console.log('✅ Groq succeeded.');
-  } catch (groqError: any) {
-    console.warn('⚠️ Groq failed:', groqError?.message || groqError);
-
-    // Step B — Check if we should fallback to OpenAI
-    if (isRetryableGroqError(groqError)) {
-      console.warn('🔁 Groq rate-limited / unavailable. Switching to OpenAI (backup)...');
-
-      if (!config.openai_api_key) {
-        throw new AppError(
-          httpStatus.INTERNAL_SERVER_ERROR,
-          'Groq is rate-limited and OpenAI backup key is not configured. Please try again later.'
-        );
-      }
-
-      // Step C — Retry with OpenAI
-      try {
-        const openaiClient = new OpenAI({ apiKey: config.openai_api_key });
-        rawText = await callOpenAI(openaiClient, systemMessage, userMessage);
-        console.log('✅ OpenAI backup succeeded.');
-      } catch (openaiError: any) {
-        console.error('❌ OpenAI backup also failed:', openaiError?.message || openaiError);
-        throw new AppError(
-          httpStatus.INTERNAL_SERVER_ERROR,
-          'Both AI services are currently unavailable. Please try again later.'
-        );
-      }
-    } else {
-      // Non-retryable Groq error (bad request, auth, etc.)
-      throw new AppError(
-        httpStatus.INTERNAL_SERVER_ERROR,
-        `AI service error: ${groqError?.message || 'Unknown error'}`
-      );
-    }
+    console.log('🤖 Pass 2: Calling OpenAI for study plan...');
+    rawText = await callOpenAI(openaiClient, systemMessage, userMessage);
+    console.log('✅ OpenAI succeeded. Response length:', rawText.length, 'chars');
+  } catch (error: any) {
+    console.error('❌ OpenAI failed:', error?.message || error);
+    throw new AppError(
+      httpStatus.INTERNAL_SERVER_ERROR,
+      `AI service error: ${error?.message || 'Unknown error'}`
+    );
   }
 
   console.log('🤖 AI raw response (first 500 chars):', rawText.substring(0, 500));
 
-  // ───── 5. Extract & validate JSON from AI response ─────
+  // ───── 6. Extract & validate JSON from AI response ─────
   const validPlan = extractAndValidatePlan(rawText);
 
   // Extract unique topics from the AI plan for storage
   const uniqueTopics = [...new Set(validPlan.map((d) => d.topic).filter(Boolean))];
+
+  // Log coverage: how many extracted topics are in the plan
+  if (allTopics.length > 0) {
+    const coveredCount = allTopics.filter((t) =>
+      uniqueTopics.some((ut) => ut.toLowerCase().includes(t.toLowerCase()) || t.toLowerCase().includes(ut.toLowerCase()))
+    ).length;
+    console.log(`📊 Topic coverage: ${coveredCount}/${allTopics.length} topics covered in plan`);
+    if (coveredCount < allTopics.length) {
+      const missing = allTopics.filter((t) =>
+        !uniqueTopics.some((ut) => ut.toLowerCase().includes(t.toLowerCase()) || t.toLowerCase().includes(ut.toLowerCase()))
+      );
+      console.warn('⚠️ Missing topics:', missing.slice(0, 10));
+    }
+  }
 
   const studyPlan = await StudyPlanModel.create({
     user: payload.userId,

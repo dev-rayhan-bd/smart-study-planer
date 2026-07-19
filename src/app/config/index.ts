@@ -26,6 +26,5 @@ export default {
   super_admin_password: process.env.SUPER_ADMIN_PASSWORD,
   super_admin_first_name: process.env.SUPER_ADMIN_FIRST_NAME,
   super_admin_last_name: process.env.SUPER_ADMIN_LAST_NAME,
-  groq_api_key: process.env.GROQ_API_KEY,
   openai_api_key: process.env.OPENAI_API_KEY,
 };

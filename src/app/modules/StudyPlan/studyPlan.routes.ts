@@ -55,7 +55,7 @@ router.patch(
   '/toggle-task/:id',
   auth(USER_ROLE.student),
 
-  validateRequest(StudyPlanValidation.toggleTaskValidationSchema),
+  // validateRequest(StudyPlanValidation.toggleTaskValidationSchema),
   StudyPlanControllers.toggleTaskStatus
 );
 
