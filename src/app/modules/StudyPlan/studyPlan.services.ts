@@ -8,53 +8,23 @@ import httpStatus from 'http-status';
 import QueryBuilder from '../../builder/QueryBuilder';
 import { sendNotification } from '../../utils/sendNotification';
 import { ChatServices } from '../Chat/chat.service';
-import * as pdfjs from 'pdfjs-dist';
+
 // ───────────────────────── PDF Text Extraction Helper ─────────────────────────
-// const extractTextFromPDF = async (buffer: Buffer): Promise<string> => {
-//   try {
-//     const { PDFParse } = await import('pdf-parse');
-//     const parser = new PDFParse({ data: buffer });
-//     const result = await parser.getText();
-//     await parser.destroy();
-//     return result.text;
-//   } catch {
-//     throw new AppError(
-//       httpStatus.BAD_REQUEST,
-//       'Failed to extract text from the uploaded PDF. Please ensure the file is valid.'
-//     );
-//   }
-// };
-
-
-
-
 const extractTextFromPDF = async (buffer: Buffer): Promise<string> => {
   try {
-  
-    const data = new Uint8Array(buffer);
-    const loadingTask = pdfjs.getDocument({ data });
-    const pdf = await loadingTask.promise;
-    
-    let fullText = '';
-    
-    for (let i = 1; i <= pdf.numPages; i++) {
-      const page = await pdf.getPage(i);
-      const textContent = await page.getTextContent();
-      const pageText = textContent.items
-        .map((item: any) => item.str)
-        .join(' ');
-      fullText += pageText + '\n';
-    }
-    
-    return fullText;
-  } catch (error) {
-    console.error("PDF Parsing Error:", error);
+    const { PDFParse } = await import('pdf-parse');
+    const parser = new PDFParse({ data: buffer });
+    const result = await parser.getText();
+    await parser.destroy();
+    return result.text;
+  } catch {
     throw new AppError(
       httpStatus.BAD_REQUEST,
-      'Failed to extract text from PDF. Please ensure it is a valid text-based PDF.'
+      'Failed to extract text from the uploaded PDF. Please ensure the file is valid.'
     );
   }
 };
+
 // ───────────────────────── Text Cleaning Helper ─────────────────────────
 /** Collapse whitespace, trim lines, and reduce token size before sending to AI. */
 const cleanExtractedText = (text: string): string => {
