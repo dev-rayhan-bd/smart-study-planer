@@ -1,6 +1,6 @@
 import { RecursiveCharacterTextSplitter } from '@langchain/textsplitters';
 import { OpenAIEmbeddings } from '@langchain/openai';
-import Groq from 'groq-sdk';
+import OpenAI from 'openai';
 import { PDFLoader } from '@langchain/community/document_loaders/fs/pdf';
 import httpStatus from 'http-status';
 import config from '../../config';
@@ -198,25 +198,24 @@ const vectorSearch = async (
   return allChunks.map((r) => ({ text: r.text, score: 0.1 }));
 };
 
-// ───────────────────────── LLM Chat (Groq → OpenAI failover) ─────────────────────────
+// ───────────────────────── LLM Chat (OpenAI) ─────────────────────────
 
 const chatWithLLM = async (systemMessage: string, userMessage: string): Promise<string> => {
-  // Try Groq first (free)
-  if (config.groq_api_key) {
+  if (config.openai_api_key) {
     try {
-      const groqClient = new Groq({ apiKey: config.groq_api_key });
-      const result = await groqClient.chat.completions.create({
+      const openaiClient = new OpenAI({ apiKey: config.openai_api_key });
+      const result = await openaiClient.chat.completions.create({
         messages: [
           { role: 'system', content: systemMessage },
           { role: 'user', content: userMessage },
         ],
-        model: 'llama-3.3-70b-versatile',
+        model: 'gpt-4o-mini',
         temperature: 0.2,
         max_tokens: 2048,
       });
       return result.choices[0]?.message?.content || '';
-    } catch (groqError: any) {
-      console.warn('⚠️ Groq chat failed:', groqError?.message);
+    } catch (openaiError: any) {
+      console.error('❌ OpenAI chat failed:', openaiError?.message);
     }
   }
 

@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import Groq from 'groq-sdk';
+import OpenAI from 'openai';
 import { PDFLoader } from '@langchain/community/document_loaders/fs/pdf';
 import config from '../../config';
 import { StudyPlanModel } from './studyPlan.model';
@@ -66,9 +66,9 @@ const aiStudyPlanResponseSchema = z.array(aiDayPlanSchema).min(1);
 
 // ───────────────────────── AI Provider Strategy ─────────────────────────
 
-/** Generate the study plan with Groq. */
-const callGroq = async (
-  client: Groq,
+/** Generate the study plan with OpenAI. */
+const callOpenAI = async (
+  client: OpenAI,
   systemMessage: string,
   userMessage: string
 ): Promise<string> => {
@@ -77,9 +77,9 @@ const callGroq = async (
       { role: 'system', content: systemMessage },
       { role: 'user', content: userMessage },
     ],
-    model: 'llama-3.3-70b-versatile',
+    model: 'gpt-4o-mini',
     temperature: 0.1,
-    max_tokens: 8192,
+    max_tokens: 16384,
   });
   return result.choices[0]?.message?.content || '';
 };
@@ -136,10 +136,10 @@ const generateAiStudyPlan = async (payload: {
   fileBuffer?: Buffer;
 }) => {
   // ───── 0. Validate API key up front ─────
-  if (!config.groq_api_key) {
+  if (!config.openai_api_key) {
     throw new AppError(
       httpStatus.INTERNAL_SERVER_ERROR,
-      'Groq API key is not configured'
+      'OpenAI API key is not configured'
     );
   }
 
@@ -182,7 +182,7 @@ const generateAiStudyPlan = async (payload: {
     ? '🚨 EMERGENCY STUDY MODE — Only 1 day! Pack ALL topics. 8-10 tasks per session. No breaks.'
     : '';
 
-  const groqClient = new Groq({ apiKey: config.groq_api_key as string });
+  const openaiClient = new OpenAI({ apiKey: config.openai_api_key as string });
 
   // ───── 4a. PASS 1: Extract ALL topics from the syllabus ─────
   let allTopics: string[] = [];
@@ -207,7 +207,7 @@ ${contentSource}
 ["Topic 1", "Topic 2", "Topic 3", ...]`;
 
     try {
-      const topicRaw = await callGroq(groqClient, topicExtractSystemMsg, topicExtractUserMsg);
+      const topicRaw = await callOpenAI(openaiClient, topicExtractSystemMsg, topicExtractUserMsg);
       console.log('✅ Pass 1 done. Raw response length:', topicRaw.length, 'chars');
 
       // Extract JSON array from response
@@ -267,15 +267,15 @@ RULES:
 ✅ Output ONLY this JSON array:
 [{"day":1,"session":"Morning","topic":"Exact Topic Name","tasks":[{"title":"Task detail","estimatedMinutes":45,"isCompleted":false}],"isRevisionDay":false}]`;
 
-  // ───── 5. Call Groq ─────
+  // ───── 5. Call OpenAI ─────
   let rawText: string;
 
   try {
-    console.log('🤖 Pass 2: Calling Groq for study plan...');
-    rawText = await callGroq(groqClient, systemMessage, userMessage);
-    console.log('✅ Groq succeeded. Response length:', rawText.length, 'chars');
+    console.log('🤖 Pass 2: Calling OpenAI for study plan...');
+    rawText = await callOpenAI(openaiClient, systemMessage, userMessage);
+    console.log('✅ OpenAI succeeded. Response length:', rawText.length, 'chars');
   } catch (error: any) {
-    console.error('❌ Groq failed:', error?.message || error);
+    console.error('❌ OpenAI failed:', error?.message || error);
     throw new AppError(
       httpStatus.INTERNAL_SERVER_ERROR,
       `AI service error: ${error?.message || 'Unknown error'}`
