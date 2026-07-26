@@ -1,7 +1,7 @@
 import { RecursiveCharacterTextSplitter } from '@langchain/textsplitters';
 import { OpenAIEmbeddings } from '@langchain/openai';
 import OpenAI from 'openai';
-import { PDFLoader } from '@langchain/community/document_loaders/fs/pdf';
+import { PDFParse } from 'pdf-parse';
 import httpStatus from 'http-status';
 import config from '../../config';
 import AppError from '../../errors/AppError';
@@ -36,10 +36,10 @@ const ingestSyllabusToVectorDB = async (
   }
 
   // ── Step 1: Extract text from PDF ──
-  const blob = new Blob([new Uint8Array(pdfBuffer)]);
-  const loader = new PDFLoader(blob, { splitPages: false });
-  const docs = await loader.load();
-  const rawText = docs.map((d) => d.pageContent).join('\n');
+  const parser = new PDFParse({ data: pdfBuffer });
+  const result = await parser.getText();
+  await parser.destroy();
+  const rawText = result.text;
   if (!rawText || rawText.trim().length < 50) {
     throw new AppError(
       httpStatus.BAD_REQUEST,

@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import OpenAI from 'openai';
-import { PDFLoader } from '@langchain/community/document_loaders/fs/pdf';
+import { PDFParse } from 'pdf-parse';
 import config from '../../config';
 import { StudyPlanModel } from './studyPlan.model';
 import AppError from '../../errors/AppError';
@@ -12,10 +12,10 @@ import { ChatServices } from '../Chat/chat.service';
 // ───────────────────────── PDF Text Extraction Helper ─────────────────────────
 const extractTextFromPDF = async (buffer: Buffer): Promise<string> => {
   try {
-    const blob = new Blob([new Uint8Array(buffer)]);
-    const loader = new PDFLoader(blob, { splitPages: false });
-    const docs = await loader.load();
-    return docs.map((d) => d.pageContent).join('\n');
+    const parser = new PDFParse({ data: buffer });
+    const result = await parser.getText();
+    await parser.destroy();
+    return result.text;
   } catch (err: any) {
     console.error('PDF extraction error:', err?.message || err);
     throw new AppError(
