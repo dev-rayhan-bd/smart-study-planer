@@ -1,7 +1,7 @@
 import { RecursiveCharacterTextSplitter } from '@langchain/textsplitters';
 import { OpenAIEmbeddings } from '@langchain/openai';
 import Groq from 'groq-sdk';
-import OpenAI from 'openai';
+import { PDFLoader } from '@langchain/community/document_loaders/fs/pdf';
 import httpStatus from 'http-status';
 import config from '../../config';
 import AppError from '../../errors/AppError';
@@ -36,12 +36,10 @@ const ingestSyllabusToVectorDB = async (
   }
 
   // ── Step 1: Extract text from PDF ──
-  const { PDFParse } = await import('pdf-parse');
-  const parser = new PDFParse({ data: pdfBuffer });
-  const result = await parser.getText();
-  await parser.destroy();
-
-  const rawText = result.text;
+  const blob = new Blob([new Uint8Array(pdfBuffer)]);
+  const loader = new PDFLoader(blob, { splitPages: false });
+  const docs = await loader.load();
+  const rawText = docs.map((d) => d.pageContent).join('\n');
   if (!rawText || rawText.trim().length < 50) {
     throw new AppError(
       httpStatus.BAD_REQUEST,
@@ -218,26 +216,7 @@ const chatWithLLM = async (systemMessage: string, userMessage: string): Promise<
       });
       return result.choices[0]?.message?.content || '';
     } catch (groqError: any) {
-      console.warn('⚠️ Groq chat failed, falling back to OpenAI:', groqError?.message);
-    }
-  }
-
-  // Fallback to OpenAI
-  if (config.openai_api_key) {
-    try {
-      const openaiClient = new OpenAI({ apiKey: config.openai_api_key });
-      const result = await openaiClient.chat.completions.create({
-        messages: [
-          { role: 'system', content: systemMessage },
-          { role: 'user', content: userMessage },
-        ],
-        model: 'gpt-4o-mini',
-        temperature: 0.2,
-        max_tokens: 2048,
-      });
-      return result.choices[0]?.message?.content || '';
-    } catch (openaiError: any) {
-      console.error('❌ OpenAI chat also failed:', openaiError?.message);
+      console.warn('⚠️ Groq chat failed:', groqError?.message);
     }
   }
 
