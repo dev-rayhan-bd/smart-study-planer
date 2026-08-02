@@ -3,7 +3,7 @@ import httpStatus from "http-status";
 import { TLoginAdmin, TLoginUser } from "./auth.interface";
 import { createToken, verifyToken } from "./auth.utils";
 import { JwtPayload } from "jsonwebtoken";
-import bcrypt from "bcrypt";
+import bcrypt from "bcryptjs";
 import { TUser } from "../User/user.interface";
 import { UserModel } from "../User/user.model";
 
