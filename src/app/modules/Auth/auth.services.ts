@@ -18,7 +18,7 @@ const registeredUserIntoDB = async (payload: TUser) => {
     throw new AppError(httpStatus.CONFLICT, "This user already exists!");
   }
   const initialStatus: 'active' | 'blocked' = 'active';
-  // Set fullName if not provided
+  // Set fullName if not providedd
   if (!payload.fullName && payload.firstName && payload.lastName) {
     payload.fullName = `${payload.firstName} ${payload.lastName}`;
   }

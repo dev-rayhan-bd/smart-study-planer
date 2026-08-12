@@ -20,8 +20,14 @@ async function connectDB() {
   return cachedConnection;
 }
 
-// Export a default handler — Vercel calls this for every incoming request.
 export default async function handler(req: any, res: any) {
   await connectDB();
-  return app(req, res);
+
+  // Return a promise that resolves when the response finishes
+  // This prevents Vercel from terminating the function prematurely
+  return new Promise((resolve, reject) => {
+    res.once('finish', resolve);
+    res.once('error', reject);
+    app(req, res);
+  });
 }
