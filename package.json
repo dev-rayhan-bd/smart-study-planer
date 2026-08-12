@@ -4,9 +4,9 @@
   "main": "index.js",
   "license": "MIT",
   "scripts": {
-    "dev": "tsx watch src/server.ts",
-    "build": "tsc",
-    "start": "node dist/server.ts"
+    "dev": "node init && tsx watch src/server.ts",
+    "build": "node init && tsc",
+    "start": "node init && node dist/server.ts"
   },
   "dependencies": {
     "@google/generative-ai": "^0.24.1",
@@ -33,6 +33,7 @@
     "morgan": "^1.11.0",
     "multer": "^2.2.0",
     "node-cron": "^4.6.0",
+    "node-fetch": "^3.3.2",
     "nodemailer": "^9.0.3",
     "openai": "^6.46.0",
     "pdf-parse": "^2.4.5",
